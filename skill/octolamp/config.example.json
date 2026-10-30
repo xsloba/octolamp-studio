@@ -1,0 +1,6 @@
+{
+  "place": "Your City, ST",
+  "lat": 0.0,
+  "lon": 0.0,
+  "note": "Copy to config.json (git-ignored) and set a city-level location for the weather look. Two decimals is plenty."
+}

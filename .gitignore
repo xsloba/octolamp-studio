@@ -1,0 +1,11 @@
+# personal settings
+skill/octolamp/config.json
+# python
+__pycache__/
+*.pyc
+.venv/
+# photos you take while mapping/calibrating (they show your room)
+photos/
+*.HEIC
+*.heic
+.DS_Store

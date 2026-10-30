@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.octolamp.weather</string>
+  <!-- TEMPLATE: replace __HOME__ with your home folder (see examples/README.md).
+       Every 30 min: recolour the Octolamp's weather look. Only touches the lamp if the
+       weather look is showing (--if-active). Remove: launchctl bootout gui/$(id -u)/com.octolamp.weather -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/python3</string>
+    <string>-I</string>
+    <string>__HOME__/.claude/skills/octolamp/scripts/lamp.py</string>
+    <string>weather</string>
+    <string>--if-active</string>
+  </array>
+  <key>StartInterval</key>
+  <integer>1800</integer>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>__HOME__/Library/Logs/octolamp-weather.log</string>
+  <key>StandardErrorPath</key>
+  <string>__HOME__/Library/Logs/octolamp-weather.log</string>
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>
