@@ -2,8 +2,9 @@
 
 ## Weather refresh (macOS LaunchAgent)
 
-`com.octolamp.weather.plist` runs `lamp.py weather --if-active` every 30
-minutes and once at login. `--if-active` means it only recolours the lamp while
+`com.octolamp.weather.plist` runs `lamp.py evening apply` (puts the evening/day
+brightness back if a reboot lost it; does nothing if evening dimming is off) and
+`lamp.py weather --if-active` every 30 minutes and once at login. `--if-active` means it only recolours the lamp while
 the Weather look is showing, so it never overrides another look you've put on.
 
 ```bash

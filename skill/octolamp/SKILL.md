@@ -56,6 +56,7 @@ Walk the user through `docs/mapping.md` in the repo; it takes about 8 photos.
 | `weather [--dry-run] [--if-active] [--temp C]` | The calm look coloured by the current weather: icy blues when cold, amber/orange when hot or sunny. Saves preset 2 "Weather" |
 | `github ci owner/repo [--branch B] [--workflow ci.yml] [--watch] [--if-active] [--status ...]` | Latest Actions run → preset "CI running" (amber meteor circling the ring), "CI passed" (green breathe), "CI failed" (red heartbeat cat). `--watch` follows a running build to the end |
 | `github commits [--user LOGIN] [--goal 10] [--if-active] [--count N --level L]` | Today's contributions: the ring fills clockwise toward the goal, the cat glows the contribution-level green (GitHub's own 0–4 levels) |
+| `evening on [--start 19:00] [--end 07:00] [--level 30%]` / `evening off` / `evening status` | Optional evening dimming: WLED timers lower the master brightness at night and restore it in the morning, on the lamp itself, whatever look is showing |
 | `mode` / `mode 1d` / `mode 2d` | Show or switch between plain-strip and 2D-Octocat mode (reboots the lamp, ~15 s) |
 | `nightlight <minutes>` | Fade to off over N minutes |
 | `raw '<json>'` | POST anything to `/json/state` — the escape hatch for whatever the commands don't cover |
@@ -147,7 +148,33 @@ what's actually installed — the user may have changed them):
 | 4 / 5 / 6 | CI running / CI passed / CI failed | Layout 1 looks picked by `github ci` (amber meteor circling the ring; green breathe; red heartbeat cat) |
 | 9 | Two-tone cycle | Playlist of 10–15 on layout 0: left/right halves in two colours, a new pair every 10 s with 8 s crossfades and sides alternating |
 
-Free slots for new looks: 7–8 and 25+.
+Presets 7/8 are the evening-dimming brightness presets. Free slots for new looks: 25+.
+
+## Brightness: looks vs. day and evening
+
+**Looks never set the master brightness.** Each preset and command puts its own
+level into *segment* brightness (the power-cap fits for Weather, CI, and
+contributions live there), and master brightness is left for the user and for
+evening dimming. Brightness is linear on this lamp (`light.gc.bri` is 1), so
+master × segment is what the LEDs get. When saving a new look, keep `"bri"` out
+of the preset's top level and put levels on its segments, or it will fight the
+evening timer.
+
+**Evening dimming** (`lamp.py evening on`) is optional and off by default. It
+saves two brightness-only presets: 7 "Day brightness" (`{"bri":255}`) and 8
+"Evening brightness" (`{"bri":<level>}`). WLED timers apply them at the start
+and end times (`/json/cfg` `timers.ins`, entries with `macro` 7 or 8; other
+timers are left alone). Turning it on also sets the boot brightness to 255.
+It runs on the lamp, using the lamp's NTP clock and timezone, so it works with
+the computer off. Timers don't fire retroactively, though, so after a reboot
+mid-evening `lamp.py evening apply` puts the right level back. The weather
+LaunchAgent runs it every 30 minutes. `apply` only corrects 255, the evening
+level, or the 128 boot default, never a brightness the user chose by hand.
+`evening off` removes the timers and restores full brightness. Saving presets
+7/8 stops a running playlist first and resumes it afterwards (saving presets
+mid-playlist can crash WLED). WLED's global brightness factor
+(`light.scale-bri`) looks like the obvious tool for this, but it doesn't apply
+until a reboot.
 
 ## The calm look and the weather
 
@@ -156,13 +183,13 @@ around the ring (segment "Weather ring", layout 1 rows 0–2) while the cat
 breathes one solid colour (segment "Weather cat", rows 3–4). It's the right kind
 of look for anything that should stay on for hours, unlike `animate`.
 
-- **Brightness is fitted to the power headroom.** `weather` samples the power
-  estimate for ~12 s (two ~5 s breaths) and picks the highest brightness that
-  keeps the cat's peak breath plus the ring under ~92% of the power cap — above
-  that, WLED's limiter would dim the ring every time the cat breathes in.
-  Brightness is gamma-corrected (current ~ bri^2.2). The saved value only
-  changes if the fit moves by more than 6, so the preset isn't re-saved over
-  noise; the 3 s fade-in is allowed to finish before measuring.
+- **Its segment brightness is fitted to the power headroom.** `weather` samples
+  the power estimate for ~12 s (two ~5 s breaths), projects it to full master
+  brightness (brightness is linear on this lamp), and picks the highest segment
+  brightness that keeps the cat's peak breath plus the ring under ~92% of the
+  cap at full master brightness — above that, WLED's limiter would dim the ring
+  every time the cat breathes in. It only re-saves when the fit moves by more
+  than ~3%, and lets the 3 s fade-in finish before measuring.
 - **Weather** (`scripts/weather.py`) uses Open-Meteo — free, no key — for the
   city-level location in `config.json` (copy `config.example.json`; it's
   git-ignored). It folds the feels-like temperature, +3 °C for daytime sun and

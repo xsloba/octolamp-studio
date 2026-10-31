@@ -39,8 +39,11 @@ SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 def layout():
     with open(os.path.join(SKILL_DIR, "references", "layout.json")) as f: return json.load(f)
 
-CONTRIB_BRI = 72                       # contributions look: full ring at level 4 peaks ~750 mA
-WEATHER_PRESET, WEATHER_BRI = 2, 62   # bri 62 keeps a breathing white-ish cat + ring under the 850 mA cap
+# Looks set their brightness on their segments; master brightness is left for the user / the evening timer.
+CONTRIB_BRI = 72                       # contributions segment brightness: full ring at level 4 peaks ~750 mA
+WEATHER_PRESET = 2
+DAY_PRESET, EVENING_PRESET = 7, 8      # brightness-only presets the evening timers apply
+IDLE_MA = 218                          # power estimate with every LED off
 
 _cells = {}
 def cell_of():
@@ -82,9 +85,9 @@ def paint(colors, clear=False, seg=0):
     for led, rgb in sorted(colors.items()):
         g = gain(led)
         ops += [cells[led] if cells else led - s["start"], "%02x%02x%02x" % tuple(min(255, round(v * g)) for v in rgb)]
-    return state({"on": True, "transition": 0, "seg": [{"id": seg, "i": ops}]})
+    return state({"on": True, "transition": 0, "seg": [{"id": seg, "i": ops, "bri": 255}]})
 
-FULL = [{"id": 0, "start": 0, "stop": 24, "startY": 0, "stopY": 24, "n": "", "on": True, "pal": 0,
+FULL = [{"id": 0, "start": 0, "stop": 24, "startY": 0, "stopY": 24, "n": "", "on": True, "pal": 0, "bri": 255,
          "col": [[255, 255, 255], [0, 0, 0], [0, 0, 0]]}] + [{"id": i, "stop": 0} for i in range(1, 32)]
 
 def use_layout(n):
@@ -93,7 +96,6 @@ def use_layout(n):
     if st.get("ledmap", 0) != n:
         state({"ledmap": n}); time.sleep(0.3); _cells.clear(); _segs.clear()
         if n == 0 and api("/json/info")["leds"].get("matrix"): state({"seg": FULL})
-        if n == 0 and st.get("ledmap") == 1: state({"bri": 255})   # weather's low brightness was a power compromise, not a choice
     return st
 
 def restore(snap):
@@ -217,6 +219,11 @@ def main():
     g.add_argument("--if-active", action="store_true", help="only update if the contributions look is already showing")
     g.add_argument("--dry-run", action="store_true"); g.add_argument("--count", type=int, help="preview with this count")
     g.add_argument("--level", type=int, choices=range(5), help="preview with this level (0-4)")
+    a = sub.add_parser("evening", help="optional evening dimming: WLED timers lower the master brightness at night (runs on the lamp)")
+    a.add_argument("action", choices=["on", "off", "status", "apply"], help="apply = fix the brightness for the current time (used by the background job)")
+    a.add_argument("--start", default="19:00", help="when evening starts, HH:MM (lamp's local time)")
+    a.add_argument("--end", default="07:00", help="when day starts again, HH:MM")
+    a.add_argument("--level", default="30%", help="evening brightness, 0-255 or N%% (day is always full)")
     a = sub.add_parser("mode", help="show or switch 1D strip / 2D Octocat mode (2D uses the photo-mapped layout)")
     a.add_argument("which", nargs="?", choices=["1d", "2d"])
     a = sub.add_parser("raw", help="POST any JSON to /json/state"); a.add_argument("json")
@@ -233,11 +240,11 @@ def main():
     elif c == "color":
         use_layout(0)
         cols = [parse_color(x) for x in args.colors[:3]]
-        state({"on": True, "seg": [{"id": i, "fx": 0, "frz": False, "col": cols} for i in seg_ids(args)]})
+        state({"on": True, "seg": [{"id": i, "fx": 0, "frz": False, "col": cols, "bri": 255} for i in seg_ids(args)]})
     elif c == "effect":
         use_layout(0)
         fx, name = lookup("effect", args.name)
-        seg = {"fx": fx, "frz": False}   # painted pixels freeze a segment; effects need it running
+        seg = {"fx": fx, "frz": False, "bri": 255}   # painted pixels freeze a segment; effects need it running
         if args.speed is not None: seg["sx"] = args.speed
         if args.intensity is not None: seg["ix"] = args.intensity
         if args.palette: seg["pal"] = lookup("palette", args.palette)[0]
@@ -348,40 +355,43 @@ def main():
         if two_d and st.get("ledmap") != 1:
             state({"ledmap": 1}); time.sleep(0.5)
         cw, _ = lookup("effect", "colorwaves"); br, _ = lookup("effect", "breathe"); grad, _ = lookup("palette", "color gradient")
-        bri = WEATHER_BRI
-        ring_bri = round(255 * sum(gain(i) for i in layout()["regions"]["ring"]) / len(layout()["regions"]["ring"]))
-        cat_bri = round(255 * sum(gain(i) for i in layout()["regions"]["cat"]) / len(layout()["regions"]["cat"]))
-        look = {"on": True, "bri": bri, "transition": 30, "seg": [
-            dict({"start": 0, "stop": 24, "startY": 0, "stopY": 3} if two_d else {"start": 0, "stop": 68}, id=0, m12=0, fx=cw, sx=40, ix=128,
-             pal=grad, col=ring_cols, frz=False, on=True, bri=ring_bri, n="Weather ring"),
-            dict({"start": 0, "stop": 15, "startY": 3, "stopY": 5} if two_d else {"start": 68, "stop": 98}, id=1, m12=0, fx=br, sx=30, pal=0,
-                 col=[cat_col, [0, 0, 0], [0, 0, 0]], frz=False, on=True, bri=cat_bri, n="Weather cat"),
-        ] + [{"id": i, "stop": 0} for i in range(2, 32)]}
-        state(look)
-        time.sleep(look["transition"] / 10 + 0.5)   # let the fade from the previous look finish before measuring
-        # Fit brightness to the power headroom: as bright as possible while the cat's peak breath plus the
-        # ring stays under the cap (otherwise WLED's limiter would dim the ring every time the cat breathes in).
-        # Brightness is gamma-corrected on this lamp, so LED current ~ bri^2.2.
-        def peak_mA():   # ~12 s at 4 Hz covers at least two ~5 s breaths
-            return max(api("/json/info")["leds"]["pwr"] for _ in range(48) if not time.sleep(0.25))
-        cap, idle = api("/json/info")["leds"]["maxpwr"], 218
-        peak = peak_mA()
-        if peak < cap:
-            fit = bri * ((0.92 * (cap - idle)) / max(1, peak - idle)) ** (1 / 2.2)
-            bri = int(max(40, min(128, fit)) // 4 * 4)
-            prev = api("/presets.json").get(str(WEATHER_PRESET), {}).get("bri")
-            if prev and abs(prev - bri) <= 6: bri = prev          # don't re-save the preset over measurement noise
-            state({"bri": bri}); time.sleep(1); peak = peak_mA()
-        while peak >= cap and bri > 24:
-            bri -= 6; state({"bri": bri}); time.sleep(1); peak = peak_mA()
+        base_ring = 255 * sum(gain(i) for i in layout()["regions"]["ring"]) / len(layout()["regions"]["ring"])
+        base_cat = 255 * sum(gain(i) for i in layout()["regions"]["cat"]) / len(layout()["regions"]["cat"])
         saved = api("/presets.json").get(str(WEATHER_PRESET), {})
-        if ([(s.get("col"), s.get("bri")) for s in saved.get("seg", [])[:2]] != [(ring_cols, ring_bri), ([cat_col, [0, 0, 0], [0, 0, 0]], cat_bri)]
-                or saved.get("bri") != bri):
-            # "o": store exactly this command, so loading the preset also switches to the ring+cat layout
-            state(dict(look, bri=bri, transition=7, ledmap=1 if two_d else 0, psave=WEATHER_PRESET, n="Weather", o=True))
+        saved_segs = [s for s in saved.get("seg", []) if s.get("stop", 1)][:2]
+        k = (saved_segs[0]["bri"] / base_ring) if saved_segs and saved_segs[0].get("bri") else 0.25
+        def make_look(k):
+            return {"on": True, "transition": 30, "seg": [
+                dict({"start": 0, "stop": 24, "startY": 0, "stopY": 3} if two_d else {"start": 0, "stop": 68}, id=0, m12=0, fx=cw, sx=40, ix=128,
+                     pal=grad, col=ring_cols, frz=False, on=True, bri=max(1, round(base_ring * k)), n="Weather ring"),
+                dict({"start": 0, "stop": 15, "startY": 3, "stopY": 5} if two_d else {"start": 68, "stop": 98}, id=1, m12=0, fx=br, sx=30, pal=0,
+                     col=[cat_col, [0, 0, 0], [0, 0, 0]], frz=False, on=True, bri=max(1, round(base_cat * k)), n="Weather cat"),
+            ] + [{"id": i, "stop": 0} for i in range(2, 32)]}
+        state(make_look(k))
+        time.sleep(3.5)   # let the fade from the previous look finish before measuring
+        # Fit the look's own (segment) brightness so that at FULL master brightness the cat's peak breath plus the
+        # ring stays under the power cap; otherwise WLED's limiter would dim the ring every time the cat breathes in.
+        # Brightness is linear on this lamp, so measure at whatever master brightness is set (day or evening) and project.
+        def projected_peak():   # ~12 s at 4 Hz covers at least two ~5 s breaths
+            pk = max(api("/json/info")["leds"]["pwr"] for _ in range(48) if not time.sleep(0.25))
+            m = max(1, api("/json/state")["bri"])
+            return IDLE_MA + (pk - IDLE_MA) * 255 / m
+        cap = api("/json/info")["leds"]["maxpwr"]
+        proj = projected_peak()
+        k_fit = max(0.08, min(1.0, k * 0.92 * (cap - IDLE_MA) / max(1, proj - IDLE_MA)))
+        k_new = round(k_fit / 0.02) * 0.02
+        if not (saved_segs and abs(k_new - k) <= 0.03): k = k_new        # don't re-save the preset over measurement noise
+        look = make_look(k); state(look); time.sleep(1); proj = projected_peak()
+        while proj >= 0.98 * cap and k > 0.1:
+            k -= 0.03; look = make_look(k); state(look); time.sleep(1); proj = projected_peak()
+        segs_now = [(s["col"], s["bri"]) for s in look["seg"][:2]]
+        if [(s.get("col"), s.get("bri")) for s in saved_segs] != segs_now or "bri" in saved:
+            # "o": store exactly this command (no master brightness), so loading it also switches to the ring+cat layout
+            state(dict(look, transition=7, ledmap=1 if two_d else 0, psave=WEATHER_PRESET, n="Weather", o=True))
             note = f"saved as preset {WEATHER_PRESET}"
         else: note = "preset unchanged"
-        print(f"applied at brightness {bri} (peak {peak} mA, cap never engaged), {note}"); return
+        print(f"applied: ring {look['seg'][0]['bri']}, cat {look['seg'][1]['bri']} segment brightness "
+              f"(projected peak at full brightness {proj:.0f} mA, cap {cap}), {note}"); return
     elif c == "github":
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         import github
@@ -429,10 +439,60 @@ def main():
         clock = lambda i: math.degrees(math.atan2(pos[i]["x"] - 0.5, -(pos[i]["y"] - 0.5))) % 360
         lit = set(sorted(ring, key=clock)[:round(len(ring) * min(count, args.goal) / args.goal)])
         use_layout(0)
-        state({"bri": CONTRIB_BRI})   # measured: a full ring at level 4 stays under the 850 mA cap, so levels stay distinct
         paint({i: (col if i in lit else dim) for i in ring} | {i: col for i in lay["regions"]["cat"]}, clear=True)
-        state({"seg": [{"id": 0, "n": "Contributions"}]})
+        state({"seg": [{"id": 0, "n": "Contributions", "bri": CONTRIB_BRI}]})   # full level-4 ring stays under the cap
         return
+    elif c == "evening":
+        import datetime
+        hm = lambda s: tuple(int(v) for v in s.split(":"))
+        timers = api("/json/cfg")["timers"]["ins"]
+        ours = [x for x in timers if x.get("macro") in (DAY_PRESET, EVENING_PRESET)]
+        others = [x for x in timers if x not in ours]
+        presets = api("/presets.json")
+        now = datetime.datetime.strptime(api("/json/info")["time"], "%Y-%m-%d, %H:%M:%S")
+        def evening_now(start, end):
+            n, s, e = now.hour * 60 + now.minute, start[0] * 60 + start[1], end[0] * 60 + end[1]
+            return (s <= n or n < e) if s > e else (s <= n < e)
+        def current_schedule():
+            ev = next((x for x in ours if x["macro"] == EVENING_PRESET), None); dy = next((x for x in ours if x["macro"] == DAY_PRESET), None)
+            if not (ev and dy and ev.get("en") and dy.get("en")): return None
+            return (ev["hour"], ev["min"]), (dy["hour"], dy["min"]), presets.get(str(EVENING_PRESET), {}).get("bri", 77)
+        bri_now = api("/json/state")["bri"]
+        if args.action == "status":
+            sch = current_schedule()
+            if not sch: print(f"evening dimming: OFF | brightness {bri_now} | lamp time {now:%H:%M}"); return
+            (s, e, lvl) = sch
+            print(f"evening dimming: ON {s[0]:02d}:{s[1]:02d}-{e[0]:02d}:{e[1]:02d} at brightness {lvl} ({round(lvl / 2.55)}%) | "
+                  f"now {now:%H:%M} = {'evening' if evening_now(s, e) else 'day'} | brightness {bri_now}"); return
+        if args.action == "apply":   # safety net: WLED timers don't fire retroactively after a reboot
+            sch = current_schedule()
+            if not sch: print("evening dimming is off; nothing to do"); return
+            (s, e, lvl) = sch; want = lvl if evening_now(s, e) else 255
+            if bri_now != want and bri_now in (255, lvl, 128):   # only correct values we (or a reboot) set, not a manual choice
+                state({"bri": want}); print(f"brightness {bri_now} -> {want} ({'evening' if want == lvl else 'day'})")
+            else: print(f"brightness {bri_now} ok ({'evening' if evening_now(s, e) else 'day'})")
+            return
+        if args.action == "off":
+            api("/json/cfg", {"timers": {"ins": others}})
+            sch_lvl = presets.get(str(EVENING_PRESET), {}).get("bri")
+            if bri_now == sch_lvl: state({"bri": 255})
+            print(f"evening dimming OFF (timers removed); brightness {api('/json/state')['bri']}"); return
+        # on
+        s, e, lvl = hm(args.start), hm(args.end), parse_bri(args.level)
+        st = api("/json/state"); pl = st.get("pl", -1)
+        need = presets.get(str(DAY_PRESET)) != {"n": "Day brightness", "bri": 255} or presets.get(str(EVENING_PRESET), {}).get("bri") != lvl
+        if need:
+            if pl != -1: state({"ps": DAY_PRESET}); time.sleep(1.0)   # stop the playlist first: saving presets mid-playlist can crash WLED
+            state({"psave": DAY_PRESET, "n": "Day brightness", "o": True, "bri": 255}); time.sleep(1.0)
+            state({"psave": EVENING_PRESET, "n": "Evening brightness", "o": True, "bri": lvl}); time.sleep(1.0)
+        tm = lambda h_m, macro: {"en": 1, "hour": h_m[0], "min": h_m[1], "macro": macro, "dow": 127,
+                                 "start": {"mon": 1, "day": 1}, "end": {"mon": 12, "day": 31}}
+        api("/json/cfg", {"timers": {"ins": others + [tm(s, EVENING_PRESET), tm(e, DAY_PRESET)]}, "def": {"bri": 255}})
+        want = lvl if evening_now(s, e) else 255
+        state({"bri": want})
+        if need and pl != -1: time.sleep(0.5); state({"ps": pl})   # resume the playlist that was showing
+        print(f"evening dimming ON: {s[0]:02d}:{s[1]:02d}-{e[0]:02d}:{e[1]:02d} at brightness {lvl} ({round(lvl / 2.55)}%); "
+              f"lamp time {now:%H:%M} -> {'evening' if want == lvl else 'day'}, brightness {want}"); return
     elif c == "mode":
         info = api("/json/info"); m = info["leds"].get("matrix")
         if not args.which:

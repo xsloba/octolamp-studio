@@ -49,8 +49,15 @@ behaviour that isn't obvious from the docs.
   channel: "warm white" turns orange, and sky blue and purple both land near
   pure blue. Pick colours by their on-LED hue (apply the gamma before
   comparing).
-- **Brightness is gamma-corrected too.** Current goes roughly as
-  brightness^2.2, so 60 → 72 is about 1.5× the power, not 1.2×.
+- **Brightness is linear** (`light.gc.bri` = 1) even though colours are
+  gamma-corrected, so master × segment brightness is what the LEDs get. That
+  lets looks keep their power-cap levels on segments and leaves master
+  brightness free for day/evening dimming.
+- **The global brightness factor (`light.scale-bri`) doesn't apply live.**
+  `POST /json/cfg` stores it, but it only takes effect after a reboot. WLED
+  **timers do apply live** through `/json/cfg`, and firing a brightness-only
+  preset (`{"bri": N}` saved with `"o": true`) dims whatever look is showing.
+  Timers don't fire retroactively after a reboot, though.
 - **The power limiter couples everything.** If one part of a look pulses (a
   breathing cat) while the total is near the cap, WLED dims everything else in
   time with it. Keep the peak under the cap.

@@ -20,6 +20,9 @@ turns it into something that knows its own shape:
   meteor while it builds, green when it passes, a red heartbeat when it fails),
   or today's contributions: the ring fills toward a daily goal and the cat glows
   your contribution-graph green, brighter the more you ship.
+- **Evening dimming (optional)**: `lamp.py evening on` dims the lamp from 7 pm
+  to 7 am (times and level adjustable), using timers on the lamp itself, and
+  it works with every look.
 - **A Claude Code skill**: ask in plain words — "make it cozy", "light the
   octocat's tail purple", "do a green wave from the bottom when CI passes" — and
   Claude drives the lamp, including spatial animations and the weather look.

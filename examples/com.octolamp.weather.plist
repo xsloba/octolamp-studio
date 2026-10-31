@@ -5,15 +5,13 @@
   <key>Label</key>
   <string>com.octolamp.weather</string>
   <!-- TEMPLATE: replace __HOME__ with your home folder (see examples/README.md).
-       Every 30 min: recolour the Octolamp's weather look. Only touches the lamp if the
+       Every 30 min: re-apply the evening/day brightness if a reboot lost it, then recolour the Octolamp's weather look. Only touches the lamp if the
        weather look is showing (--if-active). Remove: launchctl bootout gui/$(id -u)/com.octolamp.weather -->
   <key>ProgramArguments</key>
   <array>
-    <string>/usr/bin/python3</string>
-    <string>-I</string>
-    <string>__HOME__/.claude/skills/octolamp/scripts/lamp.py</string>
-    <string>weather</string>
-    <string>--if-active</string>
+    <string>/bin/sh</string>
+    <string>-c</string>
+    <string>/usr/bin/python3 -I __HOME__/.claude/skills/octolamp/scripts/lamp.py evening apply; /usr/bin/python3 -I __HOME__/.claude/skills/octolamp/scripts/lamp.py weather --if-active</string>
   </array>
   <key>StartInterval</key>
   <integer>1800</integer>
