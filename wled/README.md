@@ -28,9 +28,14 @@ Matrix**, or run `lamp.py mode 2d`, which does both steps.
 | 1 | Octolamp white | ledmap 0 |
 | 2 | Weather: ring drifts, cat breathes, colours from the weather (`lamp.py weather` updates it) | ledmap 1 |
 | 3 | Slices clockwise: playlist of 16–24 | ledmap 2 |
+| 4 | CI running: amber meteor circling the ring, dim amber cat | ledmap 1 |
+| 5 | CI passed: ring breathes GitHub green, solid green cat | ledmap 1 |
+| 6 | CI failed: deep red ring, red heartbeat cat | ledmap 1 |
 | 9 | Two-tone cycle: playlist of 10–15 | ledmap 0 |
 | 10–15 | Two-tone steps (left/right halves) | ledmap 0 |
 | 16–24 | Clockwise slice steps (1–8 slices lit, then dark) | ledmap 2 |
+
+`lamp.py github ci owner/repo` picks between 4–6 from a repo's latest Actions run (they're found by name, so other slots work too).
 
 To make the weather look the power-on look, set **Config → LED Preferences →
 Apply preset 2 at boot**.

@@ -54,6 +54,8 @@ Walk the user through `docs/mapping.md` in the repo; it takes about 8 photos.
 | `wave <colour> [--dir up\|down\|left\|right\|out\|in] [--seconds 2.5] [--times N] [--keep]` | Sweep a band of colour across the lamp's real shape, then restore the previous look |
 | `animate [name] [--seconds 30] [--keep]` | Run a computer-driven animation from `scripts/animations.py` (no name lists them), then restore the previous look |
 | `weather [--dry-run] [--if-active] [--temp C]` | The calm look coloured by the current weather: icy blues when cold, amber/orange when hot or sunny. Saves preset 2 "Weather" |
+| `github ci owner/repo [--branch B] [--workflow ci.yml] [--watch] [--if-active] [--status ...]` | Latest Actions run → preset "CI running" (amber meteor circling the ring), "CI passed" (green breathe), "CI failed" (red heartbeat cat). `--watch` follows a running build to the end |
+| `github commits [--user LOGIN] [--goal 10] [--if-active] [--count N --level L]` | Today's contributions: the ring fills clockwise toward the goal, the cat glows the contribution-level green (GitHub's own 0–4 levels) |
 | `mode` / `mode 1d` / `mode 2d` | Show or switch between plain-strip and 2D-Octocat mode (reboots the lamp, ~15 s) |
 | `nightlight <minutes>` | Fade to off over N minutes |
 | `raw '<json>'` | POST anything to `/json/state` — the escape hatch for whatever the commands don't cover |
@@ -142,9 +144,10 @@ what's actually installed — the user may have changed them):
 | 1 | Octolamp white | Solid white on layout 0 — the plain fallback |
 | 2 | Weather | The calm look (below), coloured by the weather; rewritten by `weather` |
 | 3 | Slices clockwise | Playlist of 16–24 on layout 2: 8 pie slices (red, orange, yellow, green, cyan, blue, violet, magenta — gamma-adjusted to stay ≥28° apart in hue on the LEDs) fade in one by one clockwise, hold, fade to dark, repeat (~10 s a round) |
+| 4 / 5 / 6 | CI running / CI passed / CI failed | Layout 1 looks picked by `github ci` (amber meteor circling the ring; green breathe; red heartbeat cat) |
 | 9 | Two-tone cycle | Playlist of 10–15 on layout 0: left/right halves in two colours, a new pair every 10 s with 8 s crossfades and sides alternating |
 
-Free slots for new looks: 4–8 and 25+.
+Free slots for new looks: 7–8 and 25+.
 
 ## The calm look and the weather
 
@@ -175,6 +178,32 @@ of look for anything that should stay on for hours, unlike `animate`.
   ask first. "No route to host" in the log means macOS Local Network privacy is
   blocking background Python from reaching the lamp; the user grants that in
   System Settings → Privacy & Security → Local Network.
+
+## GitHub on the lamp
+
+`scripts/github.py` reads GitHub with `$GITHUB_TOKEN`/`$GH_TOKEN`, else the
+signed-in `gh` CLI (it checks only the *active* account — `gh auth status`
+fails if any stored account is stale), else unauthenticated (public repos only,
+60 requests/hour). Never print or log tokens.
+
+- **`github ci`** maps the latest workflow run to a look: queued/in progress →
+  "CI running", success → "CI passed", failure/timed out → "CI failed";
+  cancelled/skipped change nothing. The three looks are presets (4–6 in the
+  repo's `presets.json`, found by name, on layout 1). Each preset's brightness
+  is fitted so its moving part never trips the power cap. Good uses: "watch my
+  build" → `github ci owner/repo --watch` in the background after a push; a
+  scheduler running `github ci owner/repo --if-active` so a CI look keeps
+  itself current without overriding other looks. `--status running|passed|failed`
+  previews a look offline.
+- **`github commits`** uses GitHub's contribution calendar (signed in) for
+  today's count and level — the same number and 0–4 shade as the profile graph.
+  The ring fills clockwise from 12 o'clock (count / `--goal`), the cat glows that
+  level's green, and even level 0 shows a faint outline. It's a painted
+  picture on layout 0 (segment named "Contributions", brightness fixed at
+  `CONTRIB_BRI`=72 so a full level-4 ring stays under the cap and the levels look
+  different). `--if-active` refreshes it only while it's showing; refresh every
+  15–30 minutes. Without sign-in it falls back to counting public events, which
+  lag and undercount — say so.
 
 ## The lamp's shape
 

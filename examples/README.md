@@ -25,3 +25,23 @@ launchctl bootout gui/$(id -u)/com.octolamp.weather && rm ~/Library/LaunchAgents
 
 On Linux, the same command works from cron:
 `*/30 * * * * python3 -I ~/.claude/skills/octolamp/scripts/lamp.py weather --if-active`.
+
+## GitHub status
+
+Watch a build after pushing, in the background (stops on its own when the run
+finishes, or after 45 minutes):
+
+```bash
+git push && (python3 -I ~/.claude/skills/octolamp/scripts/lamp.py github ci OWNER/REPO --watch >/dev/null 2>&1 &)
+```
+
+Keep today's contributions current while that look is showing (cron, every 20
+minutes; copy the weather LaunchAgent and change the arguments for macOS):
+
+```
+*/20 * * * * python3 -I ~/.claude/skills/octolamp/scripts/lamp.py github commits --if-active
+```
+
+Both read GitHub through your `gh` sign-in or `GITHUB_TOKEN`. In cron or launchd,
+`gh` must be findable (it's looked up in `PATH`, `~/.local/bin`, `/opt/homebrew/bin`,
+`/usr/local/bin`), or set `GITHUB_TOKEN` in the job's environment.

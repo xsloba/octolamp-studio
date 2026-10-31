@@ -39,6 +39,7 @@ SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 def layout():
     with open(os.path.join(SKILL_DIR, "references", "layout.json")) as f: return json.load(f)
 
+CONTRIB_BRI = 72                       # contributions look: full ring at level 4 peaks ~750 mA
 WEATHER_PRESET, WEATHER_BRI = 2, 62   # bri 62 keeps a breathing white-ish cat + ring under the 850 mA cap
 
 _cells = {}
@@ -201,6 +202,21 @@ def main():
     a.add_argument("--dry-run", action="store_true", help="show the weather and colours, don't touch the lamp")
     a.add_argument("--if-active", action="store_true", help="only update if the weather look is already showing (for scheduled runs)")
     a.add_argument("--temp", type=float, help="pretend it feels like this many deg C (preview the scale)")
+    a = sub.add_parser("github", help="show GitHub on the lamp: Actions status (ci) or today's contributions (commits)")
+    gsub = a.add_subparsers(dest="gcmd", required=True)
+    g = gsub.add_parser("ci", help="latest Actions run of a repo -> CI running / passed / failed preset")
+    g.add_argument("repo", help="owner/name"); g.add_argument("--branch"); g.add_argument("--workflow", help="workflow file name, e.g. ci.yml")
+    g.add_argument("--watch", action="store_true", help="keep checking until the run finishes")
+    g.add_argument("--every", type=int, default=30, help="seconds between checks with --watch")
+    g.add_argument("--max-minutes", type=float, default=45, help="give up watching after this long")
+    g.add_argument("--if-active", action="store_true", help="only update if a CI look is already showing (for schedulers)")
+    g.add_argument("--status", choices=["running", "passed", "failed"], help="preview a look without asking GitHub")
+    g = gsub.add_parser("commits", help="today's contributions: ring fills clockwise toward a goal, cat glows the contribution-level green")
+    g.add_argument("--user", help="GitHub login (default: whoever gh / GITHUB_TOKEN is signed in as)")
+    g.add_argument("--goal", type=int, default=10, help="contributions for a full ring")
+    g.add_argument("--if-active", action="store_true", help="only update if the contributions look is already showing")
+    g.add_argument("--dry-run", action="store_true"); g.add_argument("--count", type=int, help="preview with this count")
+    g.add_argument("--level", type=int, choices=range(5), help="preview with this level (0-4)")
     a = sub.add_parser("mode", help="show or switch 1D strip / 2D Octocat mode (2D uses the photo-mapped layout)")
     a.add_argument("which", nargs="?", choices=["1d", "2d"])
     a = sub.add_parser("raw", help="POST any JSON to /json/state"); a.add_argument("json")
@@ -366,6 +382,57 @@ def main():
             note = f"saved as preset {WEATHER_PRESET}"
         else: note = "preset unchanged"
         print(f"applied at brightness {bri} (peak {peak} mA, cap never engaged), {note}"); return
+    elif c == "github":
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import github
+        if args.gcmd == "ci":
+            names = {"running": "CI running", "passed": "CI passed", "failed": "CI failed"}
+            presets = {v.get("n"): int(k) for k, v in api("/presets.json").items() if k != "0"}
+            missing = [n for n in names.values() if n not in presets]
+            if missing: sys.exit(f"missing presets {missing}: restore wled/presets.json from the octolamp-studio repo")
+            def show(stt, line):
+                if stt in names:
+                    cur = api("/json/state").get("ps")
+                    if args.if_active and cur not in {presets[n] for n in names.values()}:
+                        print(line, "| a CI look isn't showing; left the lamp alone"); return
+                    if cur != presets[names[stt]]: state({"ps": presets[names[stt]]})
+                    print(line, "->", names[stt])
+                else: print(line, "-> nothing to show; lamp unchanged")
+            if args.status: show(args.status, f"preview: {args.status}"); return
+            t0 = time.time()
+            while True:
+                run = github.latest_run(args.repo, args.branch, args.workflow); stt = github.run_state(run)
+                line = (f'{args.repo}: {run["name"]} #{run["run_number"]} on {run["head_branch"]} '
+                        f'({run["status"]}{", " + run["conclusion"] if run.get("conclusion") else ""})') if run else f"{args.repo}: no workflow runs"
+                show(stt, line)
+                if not (args.watch and stt == "running") or time.time() - t0 > args.max_minutes * 60: break
+                time.sleep(args.every)
+            return
+        # commits
+        login = args.user or github.viewer_login()
+        if not login and args.count is None: sys.exit("say whose contributions: --user LOGIN (or sign in with gh / set GITHUB_TOKEN)")
+        if args.count is not None:
+            count, level, src = args.count, (args.level if args.level is not None else min(4, (args.count + 2) // 3)), "preview"
+        else:
+            count, level, src = github.contributions_today(login)
+        print(f"{login or 'preview'}: {count} contribution(s) today, level {level}/4 ({src}) -> ring {min(count, args.goal)}/{args.goal}")
+        if args.dry_run: return
+        st = api("/json/state")
+        active = st.get("ledmap", 0) == 0 and st["seg"] and st["seg"][0].get("n") == "Contributions"
+        if args.if_active and not active:
+            print("contributions look isn't showing; left the lamp alone"); return
+        import math
+        # level 0-4 greens, chosen for gamma 2.2 so even level 0 reads as a faint glow rather than "off"
+        GREENS = [(6, 70, 26), (20, 105, 42), (30, 160, 60), (40, 220, 80), (110, 255, 140)]
+        col = list(GREENS[level]); dim = [4, 34, 12]
+        lay = layout(); ring = lay["regions"]["ring"]; pos = {q["i"]: q for q in lay["pixels"]}
+        clock = lambda i: math.degrees(math.atan2(pos[i]["x"] - 0.5, -(pos[i]["y"] - 0.5))) % 360
+        lit = set(sorted(ring, key=clock)[:round(len(ring) * min(count, args.goal) / args.goal)])
+        use_layout(0)
+        state({"bri": CONTRIB_BRI})   # measured: a full ring at level 4 stays under the 850 mA cap, so levels stay distinct
+        paint({i: (col if i in lit else dim) for i in ring} | {i: col for i in lay["regions"]["cat"]}, clear=True)
+        state({"seg": [{"id": 0, "n": "Contributions"}]})
+        return
     elif c == "mode":
         info = api("/json/info"); m = info["leds"].get("matrix")
         if not args.which:

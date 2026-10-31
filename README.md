@@ -16,6 +16,10 @@ turns it into something that knows its own shape:
   two-tone left/right crossfade cycle, and rainbow slices that fill clockwise.
   They're WLED presets and playlists, so they run on the lamp with no computer
   attached.
+- **GitHub on your desk**: the lamp shows a repo's Actions status (amber
+  meteor while it builds, green when it passes, a red heartbeat when it fails),
+  or today's contributions: the ring fills toward a daily goal and the cat glows
+  your contribution-graph green, brighter the more you ship.
 - **A Claude Code skill**: ask in plain words — "make it cozy", "light the
   octocat's tail purple", "do a green wave from the bottom when CI passes" — and
   Claude drives the lamp, including spatial animations and the weather look.
@@ -65,8 +69,9 @@ You need an assembled Octolamp running WLED on your Wi-Fi (follow the original
    `config.json`, set your city's latitude and longitude, and run
    `lamp.py weather`.
 
-Then try `lamp.py effect octopus`, `lamp.py wave github-green --dir up`, or
-`lamp.py animate signature`.
+Then try `lamp.py effect octopus`, `lamp.py wave github-green --dir up`,
+`lamp.py animate signature`, `lamp.py github ci owner/repo --watch` or
+`lamp.py github commits`.
 
 ## Contributing
 
